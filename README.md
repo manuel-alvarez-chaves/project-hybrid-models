@@ -9,7 +9,7 @@ Hi there! 👋 and welcome to the `Hybrid Models` project for the Ellis Summer S
 
 ## Schedule
 
-|     Day    |      Time     | Activity                                   |
+| Day        |      Time     | Activity                                   |
 |------------|:-------------:|--------------------------------------------|
 | Monday 1   | 11:00 - 12:30 | Introduction to rainfall-runoff modeling   |
 |            | 14:00 - 16:00 | Introduction to LSTMs                      |
@@ -55,5 +55,10 @@ to install the required version of Python plus all required dependencies. Check 
 
 There are two Jupyter notebooks...
 
+## References
 
+If you are interested, find a lot more context and additional discussion in this paper and preprint:
+
+* Acuña Espinoza, E., Loritz, R., Álvarez Chaves, M., Bäuerle, N., & Ehret, U. (2024). To bucket or not to bucket? Analyzing the performance and interpretability of hybrid hydrological models with dynamic parameterization. Hydrology and Earth System Sciences, 28(12), 2705–2719. https://doi.org/10.5194/hess-28-2705-2024
+* Álvarez Chaves, M., Acuña Espinoza, E., Ehret, U., & Guthke, A. (2025). When physics gets in the way: An entropy-based evaluation of conceptual constraints in hybrid hydrological models. https://doi.org/10.5194/egusphere-2025-1699 
 
