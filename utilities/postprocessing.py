@@ -69,11 +69,11 @@ class Postprocessor:
             dates, y_obs, y_hat = [], [], []
             
             for sample in loader:
-                dates.append(sample["date"][:, -1])
-                y_obs.append(sample["y_obs"][:, -1, 0].detach().cpu().numpy())
-                pred = model(sample)["y_hat"][:, -1, 0] # many-to-one
-                pred = pred * ds_testing[basin].scaler["y_std"] + ds_testing[basin].scaler["y_mean"]
-                y_hat.append(pred.detach().cpu().numpy())
+                dates.append(sample["date"])
+                y_obs.append(sample["y_obs"].detach().cpu().numpy())
+                
+                pred = model(sample)
+                y_hat.append(pred["y_hat"].detach().cpu().numpy())
 
                 del sample, pred
                 torch.cuda.empty_cache()
@@ -94,10 +94,14 @@ class Postprocessor:
 
         # Get dates from first basin (assuming all basins have same dates)
         dates = out_dict[basin_ids[0]]["dates"]
-        N = dates.shape[0]
+        D = dates.shape[0]
 
-        y_obs_array = np.zeros((B, N))
-        y_hat_array = np.zeros((B, N))
+        # Get predict_last_n and num_targets from the observations
+        N = out_dict[basin_ids[0]]["y_obs"].shape[1]
+        T = out_dict[basin_ids[0]]["y_obs"].shape[2]
+
+        y_obs_array = np.zeros((B, D, N, T))
+        y_hat_array = np.zeros((B, D, N, T))
 
         # Fill xarrays
         for idx, basin in enumerate(basin_ids):
@@ -107,13 +111,15 @@ class Postprocessor:
         # Create coordinate arrays
         coords = {
             "basin": ("basin", basin_ids),
-            "date": ("date", dates)
+            "date": ("date", dates[:, -1]), # date of last prediction
+            "last_n": ("last_n", np.arange(1, N + 1)),
+            "target": ("target", np.arange(1, T + 1))
         }
 
         ds = xr.Dataset(
             {
-                "y_obs": (("basin", "date"), y_obs_array),
-                "y_hat": (("basin", "date"), y_hat_array)
+                "y_obs": (("basin", "date", "last_n", "target"), y_obs_array),
+                "y_hat": (("basin", "date", "last_n", "target"), y_hat_array)
             },
             coords=coords
         )
