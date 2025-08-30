@@ -33,10 +33,10 @@ class DataHandler:
 
         # Training
         self.cfg.logger.info("Loading training data...")
-        self.ds_training = Dataset(self.cfg, time_period="training")
+        self.ds_training = Dataset(self.cfg, time_period="training", check_NaN=True)
         self.ds_training.calculate_basin_std()
         self.ds_training.calculate_global_statistics(save_scaler=True)
-        self.ds_training.standardize_data()
+        self.ds_training.standardize_data(standardize_output=False)
         scaler = self.ds_training.scaler
 
         # Validation
@@ -49,6 +49,7 @@ class DataHandler:
         self.ds_validation = Dataset(
             self.cfg,
             time_period="validation",
+            check_NaN=True,
             entities_ids=random_basins if self.cfg.validate_n_random_basins > 0 else None,
         )
         self.ds_validation.calculate_basin_std()
