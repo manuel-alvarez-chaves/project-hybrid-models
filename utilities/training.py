@@ -7,6 +7,24 @@ from hy2dl.utils.optimizer import Optimizer
 from hy2dl.utils.utils import upload_to_device
 from tqdm import tqdm
 
+def _mask(*tensors: torch.Tensor) -> tuple[torch.Tensor]:
+    masks = []
+    for tensor in tensors:
+        num_dim = tensor.dim()
+        for _ in range(num_dim - 1):
+            tensor = tensor.sum(dim=1)
+        mask = ~tensor.isnan()
+        masks.append(mask)
+    mask = torch.stack(masks, dim=1).all(dim=1)
+
+    return tuple(tensor[mask] for tensor in tensors)
+
+def calc_nse(sim: torch.Tensor, obs: torch.Tensor) -> float:
+    # sim, obs: B, N, T
+    sim, obs = _mask(sim, obs)
+    num = (obs - sim).pow(2).mean()
+    den = (obs - obs.mean(dim=(1, 2), keepdim=True)).pow(2).mean()
+    return (1 - num / den).item()
 
 class Trainer:
     
@@ -42,15 +60,13 @@ class Trainer:
         iterator = tqdm(
                     loader,
                     desc=period.capitalize(),
-                    ncols=79,
                     unit="batch",
                     ascii=True,
-                    position=1,
                     leave=False,
                 )
 
         # Loop
-        loss_evol = []
+        loss_evol, nse_evol = [], []
         start_time = time.time()
         with context:
             for idx, sample in enumerate(iterator):
@@ -71,6 +87,9 @@ class Trainer:
                     per_basin_target_std=sample["std_basin"]
                 )
 
+                nse = calc_nse(pred["y_hat"], sample["y_obs"])
+                nse_evol.append(nse)
+
                 if is_training:
                     loss.backward()
                     self.optimizer.clip_grad_and_step(self.current_epoch, idx)
@@ -81,14 +100,18 @@ class Trainer:
                 # Free memory
                 del sample, pred
                 torch.cuda.empty_cache()
+        
         total_time = time.time() - start_time
         total_time = str(datetime.timedelta(seconds=int(total_time)))
 
         # Save the model
-        path_save_model = self.cfg.path_save_folder / f"model_epoch_{(self.current_epoch + 1):02d}.pt"
+        path_save_model = self.cfg.path_save_folder / f"model/model_epoch_{(self.current_epoch + 1):02d}.pt"
         torch.save(self.model.state_dict(), path_save_model)
 
-        if not is_training:
+        if is_training:
             self.current_epoch += 1
 
-        return sum(loss_evol)/len(loss_evol), total_time
+        mean_loss = sum(loss_evol)/len(loss_evol)
+        mean_nse = sum(nse_evol)/len(nse_evol)
+
+        return mean_loss, mean_nse, total_time
