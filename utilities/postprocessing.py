@@ -74,7 +74,7 @@ class Postprocessor:
                 collate_fn=ds_testing[basin].collate_fn,
                 num_workers=self.cfg.num_workers,
             )
-            dates, y_obs, y_hat, hs = [], [], [], []
+            dates, y_obs, y_hat, hs, internal_states, parameters = [], [], [], [], {}, {}
             
             for sample in loader:
                 dates.append(sample["date"])
@@ -85,6 +85,17 @@ class Postprocessor:
 
                 hs.append(pred["hs"].detach().cpu().numpy())
 
+                if self.cfg.model == 'hybrid':
+                    for k, v in pred["internal_states"].items():
+                        if k not in internal_states:
+                            internal_states[k] = []
+                        internal_states[k].append(v.detach().cpu().numpy())
+
+                    for k, v in pred["parameters"].items():
+                        if k not in parameters:
+                            parameters[k] = []
+                        parameters[k].append(v.detach().cpu().numpy())
+
                 del sample, pred
                 torch.cuda.empty_cache()
 
@@ -94,7 +105,12 @@ class Postprocessor:
                 "y_hat": np.concatenate(y_hat),
                 "hs": np.concatenate(hs)
             }
-            del dates, y_obs, y_hat, hs
+
+            if self.cfg.model == 'hybrid':
+                out[basin]["internal_states"] = {k: np.concatenate(v) for k, v in internal_states.items()}
+                out[basin]["parameters"] = {k: np.concatenate(v) for k, v in parameters.items()}
+
+            del dates, y_obs, y_hat, hs, internal_states, parameters
 
         return out
 
@@ -130,19 +146,41 @@ class Postprocessor:
         coords = {
             "basin": ("basin", basin_ids),
             "date": ("date", dates[:, -1]), # date of last prediction
-            "last_n": ("last_n", np.arange(1, N + 1)),
+            "last_n": ("last_n", np.arange(-N, 0)),
             "hidden_state": ("hidden_state", np.arange(1, HS + 1)),
             "target": ("target", np.arange(1, T + 1))
         }
 
-        ds = xr.Dataset(
-            {
-                "y_obs": (("basin", "date", "last_n", "target"), y_obs_array),
-                "y_hat": (("basin", "date", "last_n", "target"), y_hat_array),
-                "hs": (("basin", "date", "last_n", "hidden_state"), hs_array)
-            },
-            coords=coords
-        )
+        # Create base data variables
+        data_vars = {
+            "y_obs": (("basin", "date", "last_n", "target"), y_obs_array),
+            "y_hat": (("basin", "date", "last_n", "target"), y_hat_array),
+            "hs": (("basin", "date", "last_n", "hidden_state"), hs_array)
+        }
+        
+        # Add hybrid model specific variables
+        if self.cfg.model == "hybrid":
+            # Process parameters
+            if "parameters" in out_dict[basin_ids[0]]:
+                param_dict = out_dict[basin_ids[0]]["parameters"]
+                for param_name in param_dict.keys():
+                    param_array = np.zeros((B, D, N, T))
+                    for idx, basin in enumerate(basin_ids):
+                        param_array[idx] = out_dict[basin]["parameters"][param_name]
+                    data_vars[f"param_{param_name}"] = (("basin", "date", "last_n", "target"), param_array)
+
+            # Process internal states
+            if "internal_states" in out_dict[basin_ids[0]]:
+                internal_dict = out_dict[basin_ids[0]]["internal_states"]
+                for state_name in internal_dict.keys():
+                    state_array = np.zeros((B, D, N, T))
+                    for idx, basin in enumerate(basin_ids):
+                        state_array[idx] = out_dict[basin]["internal_states"][state_name]
+                    data_vars[f"internal_{state_name}"] = (("basin", "date", "last_n", "target"), state_array)
+
+        # Create dataset
+        ds = xr.Dataset(data_vars, coords=coords)
+
         return ds
     
     def _calc_metrics(self, ds) -> dict:
@@ -170,7 +208,8 @@ class Postprocessor:
         out = self._evaluate(model)
         ds = self._dict_to_xarray(out)
         path_results = self.cfg.path_save_folder / "results.nc"
-        ds.to_netcdf(path_results)
+        compression = {var: {"zlib":True, "complevel":5, "dtype":"f4"} for var in ds.data_vars}
+        ds.to_netcdf(path_results, encoding=compression)
         metrics = self._calc_metrics(ds)
         with open(self.cfg.path_save_folder / "metrics.json", "w") as f:
             json.dump(metrics, f, indent=4)
