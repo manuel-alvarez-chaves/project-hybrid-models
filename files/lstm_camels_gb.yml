@@ -48,29 +48,12 @@ learning_rate:
   10: 0.0005
   20: 0.0001
 validate_every: 2
-validate_n_random_basins: 3
-max_updates_per_epoch: 450
-seq_length: 730
-predict_last_n: 365
+validate_n_random_basins: -1
+seq_length: 365
+predict_last_n: 1
 device: cpu
 num_workers: 4
 random_seed: 42
 dataset: camels_gb
-# model: hybrid
-# conceptual_model: shm
-# num_conceptual_models: 16
-dynamic_input_conceptual_model:
-  precipitation: precipitation
-  pet: peti
-  temperature: temperature
-# dynamic_parameterization_conceptual_model:
-# - dd
-# - f_thr
-# - sumax
-# - beta
-# - perc
-# - kf
-# - ki
-# - kb
-# routing_model: uh_routing
+model: cudalstm
 initial_forget_bias: 3.0
