@@ -7,6 +7,7 @@ from hy2dl.utils.optimizer import Optimizer
 from hy2dl.utils.utils import upload_to_device
 from tqdm import tqdm
 
+
 def _mask(*tensors: torch.Tensor) -> tuple[torch.Tensor]:
     masks = []
     for tensor in tensors:
