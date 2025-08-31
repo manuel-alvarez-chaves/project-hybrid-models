@@ -1,4 +1,5 @@
 import datetime
+import json
 import pickle
 import time
 
@@ -8,7 +9,13 @@ import xarray as xr
 from hy2dl.datasetzoo import get_dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from unite_toolbox.knn_estimators import calc_knn_entropy
 
+
+def calc_nse(sim, obs) -> float:
+    num = ((obs - sim)**2).mean(skipna=True)
+    den = ((obs - obs.mean(skipna=True))**2).mean(skipna=True)
+    return float(1 - num / den)
 
 class Postprocessor:
 
@@ -56,7 +63,8 @@ class Postprocessor:
 
         model.eval()
         out = {}
-        iterator = tqdm(self.basin_ids, desc="Basins", ncols=78, ascii=True, unit="basin")
+        iterator = tqdm(self.basin_ids, desc="Basins", ascii=True, unit="basin", leave=False)
+        self.cfg.logger.info("Post-processing model...")
         for basin in iterator:
             loader = DataLoader(
                 dataset=ds_testing[basin],
@@ -66,7 +74,7 @@ class Postprocessor:
                 collate_fn=ds_testing[basin].collate_fn,
                 num_workers=self.cfg.num_workers,
             )
-            dates, y_obs, y_hat = [], [], []
+            dates, y_obs, y_hat, hs = [], [], [], []
             
             for sample in loader:
                 dates.append(sample["date"])
@@ -75,19 +83,24 @@ class Postprocessor:
                 pred = model(sample)
                 y_hat.append(pred["y_hat"].detach().cpu().numpy())
 
+                hs.append(pred["hs"].detach().cpu().numpy())
+
                 del sample, pred
                 torch.cuda.empty_cache()
 
             out[basin] = {
                 "dates": np.concatenate(dates),
                 "y_obs": np.concatenate(y_obs),
-                "y_hat": np.concatenate(y_hat)
+                "y_hat": np.concatenate(y_hat),
+                "hs": np.concatenate(hs)
             }
-            del dates, y_obs, y_hat
-        
+            del dates, y_obs, y_hat, hs
+
         return out
 
     def _dict_to_xarray(self, out_dict: dict):
+        self.cfg.logger.info("Saving to netCDF...")
+
         # Get all basin IDs
         basin_ids = list(out_dict.keys())
         B = len(basin_ids)
@@ -100,34 +113,65 @@ class Postprocessor:
         N = out_dict[basin_ids[0]]["y_obs"].shape[1]
         T = out_dict[basin_ids[0]]["y_obs"].shape[2]
 
+        # Get number of hidden states
+        HS = out_dict[basin_ids[0]]["hs"].shape[2]
+
         y_obs_array = np.zeros((B, D, N, T))
         y_hat_array = np.zeros((B, D, N, T))
+        hs_array = np.zeros((B, D, N, HS))
 
         # Fill xarrays
         for idx, basin in enumerate(basin_ids):
             y_obs_array[idx] = out_dict[basin]["y_obs"]
             y_hat_array[idx] = out_dict[basin]["y_hat"]
+            hs_array[idx] = out_dict[basin]["hs"]
 
         # Create coordinate arrays
         coords = {
             "basin": ("basin", basin_ids),
             "date": ("date", dates[:, -1]), # date of last prediction
             "last_n": ("last_n", np.arange(1, N + 1)),
+            "hidden_state": ("hidden_state", np.arange(1, HS + 1)),
             "target": ("target", np.arange(1, T + 1))
         }
 
         ds = xr.Dataset(
             {
                 "y_obs": (("basin", "date", "last_n", "target"), y_obs_array),
-                "y_hat": (("basin", "date", "last_n", "target"), y_hat_array)
+                "y_hat": (("basin", "date", "last_n", "target"), y_hat_array),
+                "hs": (("basin", "date", "last_n", "hidden_state"), hs_array)
             },
             coords=coords
         )
         return ds
+    
+    def _calc_metrics(self, ds) -> dict:
+        metrics = {}
+        iterator = tqdm(ds.basin.values, desc="Basins", ascii=True, unit="basin", leave=False)
+        self.cfg.logger.info("Computing metrics...")
+        for basin in iterator:
+            # Compute NSE
+            y_obs = ds.sel(basin=basin).y_obs
+            y_sim = ds.sel(basin=basin).y_hat
+            
+            nse = calc_nse(y_sim, y_obs)
+
+            # Compute Entropy
+            hs = ds.sel(basin=basin)["hs"].values[:, -1, :]
+            hs = float(calc_knn_entropy(hs, k=3))
+
+            metrics[str(basin)] = {
+                "nse": nse,
+                "h_hs": hs
+            }
+        return metrics
     
     def postprocess(self, model):
         out = self._evaluate(model)
         ds = self._dict_to_xarray(out)
         path_results = self.cfg.path_save_folder / "results.nc"
         ds.to_netcdf(path_results)
+        metrics = self._calc_metrics(ds)
+        with open(self.cfg.path_save_folder / "metrics.json", "w") as f:
+            json.dump(metrics, f, indent=4)
         return ds
