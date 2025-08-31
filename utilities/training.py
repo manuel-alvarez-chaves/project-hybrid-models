@@ -64,7 +64,9 @@ class Trainer:
         start_time = time.time()
         with context:
             for idx, sample in enumerate(iterator):
-                if (self.cfg.model == "hybrid" and self.cfg.max_updates_per_epoch is not None and idx >= self.cfg.max_updates_per_epoch):
+                if (self.cfg.model == "hybrid" and
+                    self.cfg.max_updates_per_epoch is not None and
+                    idx >= self.cfg.max_updates_per_epoch):
                     break
 
                 sample = upload_to_device(sample, self.cfg.device)
