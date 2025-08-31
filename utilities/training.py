@@ -8,23 +8,16 @@ from hy2dl.utils.utils import upload_to_device
 from tqdm import tqdm
 
 
-def _mask(*tensors: torch.Tensor) -> tuple[torch.Tensor]:
-    masks = []
-    for tensor in tensors:
-        num_dim = tensor.dim()
-        for _ in range(num_dim - 1):
-            tensor = tensor.sum(dim=1)
-        mask = ~tensor.isnan()
-        masks.append(mask)
-    mask = torch.stack(masks, dim=1).all(dim=1)
-
-    return tuple(tensor[mask] for tensor in tensors)
-
 def calc_nse(sim: torch.Tensor, obs: torch.Tensor) -> float:
     # sim, obs: B, N, T
-    sim, obs = _mask(sim, obs)
+    
+    # Mask NaNs
+    mask = ~torch.isnan(torch.flatten(obs))
+    sim, obs = torch.flatten(sim)[mask], torch.flatten(obs)[mask]
+
+    # Compute NSE
     num = (obs - sim).pow(2).mean()
-    den = (obs - obs.mean(dim=(1, 2), keepdim=True)).pow(2).mean()
+    den = (obs - obs.mean()).pow(2).mean()
     return (1 - num / den).item()
 
 class Trainer:
@@ -71,7 +64,7 @@ class Trainer:
         start_time = time.time()
         with context:
             for idx, sample in enumerate(iterator):
-                if self.cfg.max_updates_per_epoch is not None and idx >= self.cfg.max_updates_per_epoch:
+                if (self.cfg.model == "hybrid" and self.cfg.max_updates_per_epoch is not None and idx >= self.cfg.max_updates_per_epoch):
                     break
 
                 sample = upload_to_device(sample, self.cfg.device)
