@@ -30,7 +30,8 @@ If not, please install these before continuing.
 
 ### Package Manager
 
-For our Python package manager we'll be using `uv`. Please follow the installation instructions for you specific platform and verify that it has been installed correctly by writting the followin in your terminal:
+For our Python package manager we'll be using `uv`. Please follow the installation instructions for you specific platform in this [website](https://docs.astral.sh/uv/getting-started/installation/) and verify that it has been installed correctly by writting the followin in your terminal:
+
 
 ```console
 uv --version
