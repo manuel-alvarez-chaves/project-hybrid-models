@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import xarray as xr
 from hy2dl.datasetzoo import get_dataset
+from hy2dl.utils.utils import upload_to_device
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from unite_toolbox.knn_estimators import calc_knn_entropy
@@ -77,6 +78,7 @@ class Postprocessor:
             dates, y_obs, y_hat, hs, internal_states, parameters = [], [], [], [], {}, {}
             
             for sample in loader:
+                sample = upload_to_device(sample, self.cfg.device)
                 dates.append(sample["date"])
                 y_obs.append(sample["y_obs"].detach().cpu().numpy())
                 
