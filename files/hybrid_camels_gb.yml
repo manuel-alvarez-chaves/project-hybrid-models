@@ -40,7 +40,7 @@ testing_period:
 - '2008-12-31'
 hidden_size: 64
 batch_size_training: 256
-batch_size_evaluation: 256
+batch_size_evaluation: 100
 epochs: 4
 dropout_rate: 0.4
 learning_rate:
